@@ -21,15 +21,35 @@ router.use(authMiddleware)
 
 router.get('/search', (req: any, res) => {
   const q = req.query.q as string
-  if (!q) return res.json([])
+  const tags = req.query.tags as string
 
-  const items = db.prepare(`
+  if (!q && !tags) return res.json([])
+
+  const params: any[] = [req.userId]
+  const conditions: string[] = ['s.user_id = ?']
+
+  if (q) {
+    conditions.push('(i.name LIKE ? OR i.description LIKE ?)')
+    params.push(`%${q}%`, `%${q}%`)
+  }
+
+  if (tags) {
+    const tagList = tags.split(',').filter(Boolean)
+    for (const tag of tagList) {
+      conditions.push('(i.tags LIKE ? OR i.tags LIKE ? OR i.tags LIKE ? OR i.tags = ?)')
+      params.push(`%,${tag}`, `${tag},%`, `%,${tag},%`, tag)
+    }
+  }
+
+  const sql = `
     SELECT i.*, s.name as space_name
     FROM items i
     JOIN spaces s ON i.space_id = s.id
-    WHERE s.user_id = ? AND (i.name LIKE ? OR i.description LIKE ?)
+    WHERE ${conditions.join(' AND ')}
     ORDER BY i.created_at DESC
-  `).all(req.userId, `%${q}%`, `%${q}%`)
+  `
+
+  const items = db.prepare(sql).all(...params)
 
   res.json(items.map((i: any) => ({
     id: i.id,
